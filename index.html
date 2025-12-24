@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reddy Mikks - Linear Programming Solver</title>
+  <script src="https://cdn.jsdelivr.net/npm/mathjs@11.8.0/lib/browser/math.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 40px;
+      background: #f5f7fa;
+    }
+    h1 { text-align: center; }
+    form {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      max-width: 800px;
+      margin: 0 auto 20px;
+    }
+    .constraint {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    button {
+      margin-top: 10px;
+    }
+    #chart-container {
+      width: 800px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Reddy Mikks Linear Programming Solver</h1>
+
+<form id="lp-form">
+  <h3>Objective Function</h3>
+  Maximize Z = 
+  <input type="number" id="a" step="any" value="3"> × x₁ +
+  <input type="number" id="b" step="any" value="5"> × x₂
+
+  <h3>Resource Constraints</h3>
+  <div class="constraint">
+    M₁: <input type="number" class="m1-c1" step="any" value="1">×x₁ +
+    <input type="number" class="m1-c2" step="any" value="2">×x₂ ≤
+    <input type="number" class="m1-rhs" step="any" value="8">
+  </div>
+  <div class="constraint">
+    M₂: <input type="number" class="m2-c1" step="any" value="3">×x₁ +
+    <input type="number" class="m2-c2" step="any" value="1">×x₂ ≤
+    <input type="number" class="m2-rhs" step="any" value="9">
+  </div>
+
+  <h3>Demand Constraints</h3>
+  <div id="demand-constraints"></div>
+  <button type="button" onclick="addDemandConstraint()">Add constraint</button>
+  <button type="button" onclick="removeDemandConstraint()">Remove last constraint</button>
+
+  <br><br>
+  <button type="button" onclick="solveLP()">Solve</button>
+</form>
+
+<div id="result" style="text-align:center; font-weight:bold; margin:20px;"></div>
+<div id="chart-container">
+  <canvas id="lpChart"></canvas>
+</div>
+
+<script>
+let demandCount = 0;
+
+function addDemandConstraint() {
+  demandCount++;
+  const div = document.createElement('div');
+  div.className = 'constraint demand';
+  div.innerHTML = `
+    D${demandCount}: 
+    <input type="number" class="d-c1" step="any" value="1">×x₁ +
+    <input type="number" class="d-c2" step="any" value="1">×x₂ ≤
+    <input type="number" class="d-rhs" step="any" value="5">
+  `;
+  document.getElementById('demand-constraints').appendChild(div);
+}
+
+function removeDemandConstraint() {
+  const dc = document.getElementById('demand-constraints');
+  if (dc.lastChild) dc.removeChild(dc.lastChild);
+  demandCount = Math.max(0, demandCount - 1);
+}
+
+// Utility: intersection of two lines a1*x + b1*y = c1, a2*x + b2*y = c2
+function intersection(a1,b1,c1, a2,b2,c2) {
+  const det = a1*b2 - a2*b1;
+  if (Math.abs(det) < 1e-10) return null;
+  const x = (c1*b2 - c2*b1)/det;
+  const y = (a1*c2 - a2*c1)/det;
+  return {x, y};
+}
+
+function solveLP() {
+  const a = parseFloat(document.getElementById('a').value);
+  const b = parseFloat(document.getElementById('b').value);
+
+  const constraints = [];
+
+  // M1 and M2
+  const m1 = document.querySelector('.m1-c1');
+  const m1c2 = document.querySelector('.m1-c2');
+  const m1rhs = document.querySelector('.m1-rhs');
+  constraints.push({
+    c1: parseFloat(m1.value),
+    c2: parseFloat(m1c2.value),
+    rhs: parseFloat(m1rhs.value)
+  });
+
+  const m2 = document.querySelector('.m2-c1');
+  const m2c2 = document.querySelector('.m2-c2');
+  const m2rhs = document.querySelector('.m2-rhs');
+  constraints.push({
+    c1: parseFloat(m2.value),
+    c2: parseFloat(m2c2.value),
+    rhs: parseFloat(m2rhs.value)
+  });
+
+  // Demand constraints
+  document.querySelectorAll('.demand').forEach(div => {
+    const c1 = parseFloat(div.querySelector('.d-c1').value);
+    const c2 = parseFloat(div.querySelector('.d-c2').value);
+    const rhs = parseFloat(div.querySelector('.d-rhs').value);
+    constraints.push({c1, c2, rhs});
+  });
+
+  // Add non-negativity constraints x1>=0, x2>=0
+  const feasiblePoints = [];
+
+  // find intersection of all constraint pairs
+  for (let i=0;i<constraints.length;i++){
+    for (let j=i+1;j<constraints.length;j++){
+      const p = intersection(constraints[i].c1,constraints[i].c2,constraints[i].rhs,
+                             constraints[j].c1,constraints[j].c2,constraints[j].rhs);
+      if (p && p.x>=0 && p.y>=0){
+        // check feasibility
+        let feasible = constraints.every(c=> c.c1*p.x + c.c2*p.y <= c.rhs + 1e-8);
+        if (feasible) feasiblePoints.push(p);
+      }
+    }
+  }
+
+  // also check axis intersections
+  constraints.forEach(c=>{
+    // x2=0
+    if (c.c1!==0){
+      let x = c.rhs / c.c1;
+      if (x>=0){
+        let p={x:x,y:0};
+        let feasible=constraints.every(cc=>cc.c1*p.x+cc.c2*p.y<=cc.rhs+1e-8);
+        if (feasible) feasiblePoints.push(p);
+      }
+    }
+    // x1=0
+    if (c.c2!==0){
+      let y = c.rhs / c.c2;
+      if (y>=0){
+        let p={x:0,y:y};
+        let feasible=constraints.every(cc=>cc.c1*p.x+cc.c2*p.y<=cc.rhs+1e-8);
+        if (feasible) feasiblePoints.push(p);
+      }
+    }
+  });
+
+  // include origin if feasible
+  let originFeasible = constraints.every(c=>c.c1*0+c.c2*0<=c.rhs+1e-8);
+  if (originFeasible) feasiblePoints.push({x:0,y:0});
+
+  if (feasiblePoints.length===0){
+    document.getElementById('result').innerText="No feasible solution!";
+    drawChart(constraints, null);
+    return;
+  }
+
+  // evaluate objective
+  let best=null, bestZ=-Infinity;
+  feasiblePoints.forEach(p=>{
+    const Z = a*p.x + b*p.y;
+    if (Z>bestZ){ bestZ=Z; best=p; }
+  });
+
+  if (!best){
+    document.getElementById('result').innerText="No feasible solution found!";
+    drawChart(constraints, null);
+  } else {
+    document.getElementById('result').innerText=`Optimal solution: x₁=${best.x.toFixed(2)}, x₂=${best.y.toFixed(2)}, Z=${bestZ.toFixed(2)}`;
+    drawChart(constraints, best);
+  }
+}
+
+let chartInstance=null;
+function drawChart(constraints, best){
+  const ctx = document.getElementById('lpChart').getContext('2d');
+  const dataSets = [];
+
+  const xvals = Array.from({length:200}, (_,i)=>i*0.1);
+
+  constraints.forEach((c,idx)=>{
+    const yvals = xvals.map(x=> (c.rhs - c.c1*x)/c.c2);
+    dataSets.push({
+      label:`Constraint ${idx+1}`,
+      data: xvals.map((x,i)=>({x:x, y:yvals[i]})),
+      borderColor:`hsl(${idx*50},70%,40%)`,
+      borderWidth:1.5,
+      fill:false,
+      showLine:true,
+      pointRadius:0
+    });
+  });
+
+  if (best){
+    dataSets.push({
+      label:'Optimal Point',
+      data:[best],
+      backgroundColor:'red',
+      pointRadius:6,
+      showLine:false
+    });
+  }
+
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(ctx, {
+    type:'scatter',
+    data:{datasets:dataSets},
+    options:{
+      responsive:true,
+      scales:{
+        x:{type:'linear', title:{display:true,text:'x₁'}, min:0},
+        y:{type:'linear', title:{display:true,text:'x₂'}, min:0}
+      }
+    }
+  });
+}
+</script>
+
+</body>
+</html>
+/* Загальні стилі */
+body {
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+  margin: 0;
+  padding: 40px 20px;
+  background: linear-gradient(to right, #eef2f3, #dfe6e9);
+  color: #333;
+}
+
+/* Заголовок */
+h1 {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 30px;
+  color: #2d3436;
+}
+
+/* Форма */
+form {
+  background: #ffffff;
+  padding: 25px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  max-width: 850px;
+  margin: 0 auto 30px;
+}
+
+/* Підзаголовки */
+form h3 {
+  margin-top: 20px;
+  margin-bottom: 10px;
+  color: #0984e3;
+}
+
+/* Контейнери обмежень */
+.constraint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+/* Поля вводу */
+input[type="number"] {
+  width: 80px;
+  padding: 6px;
+  border: 1px solid #b2bec3;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+/* Кнопки */
+button {
+  background-color: #0984e3;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  margin-right: 10px;
+}
+
+button:hover {
+  background-color: #74b9ff;
+}
+
+/* Результат */
+#result {
+  text-align: center;
+  font-weight: bold;
+  font-size: 1.2rem;
+  color: #2d3436;
+  margin: 20px auto;
+}
+
+/* Графік */
+#chart-container {
+  width: 100%;
+  max-width: 850px;
+  margin: 0 auto;
+  background: #fff;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+canvas {
+  width: 100% !important;
+  height: auto !important;
+}
