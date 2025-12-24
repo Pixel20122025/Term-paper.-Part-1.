@@ -4,34 +4,105 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Reddy Mikks - Linear Programming Solver</title>
+  
+  <!-- Бібліотеки -->
   <script src="https://cdn.jsdelivr.net/npm/mathjs@11.8.0/lib/browser/math.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- CSS -->
   <style>
+    /* Загальні стилі */
     body {
-      font-family: Arial, sans-serif;
-      margin: 40px;
-      background: #f5f7fa;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      margin: 0;
+      padding: 40px 20px;
+      background: linear-gradient(to right, #eef2f3, #dfe6e9);
+      color: #333;
     }
-    h1 { text-align: center; }
+
+    /* Заголовок */
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+      margin-bottom: 30px;
+      color: #2d3436;
+    }
+
+    /* Форма */
     form {
-      background: #fff;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      max-width: 800px;
-      margin: 0 auto 20px;
+      background: #ffffff;
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      max-width: 850px;
+      margin: 0 auto 30px;
     }
+
+    /* Підзаголовки */
+    form h3 {
+      margin-top: 20px;
+      margin-bottom: 10px;
+      color: #0984e3;
+    }
+
+    /* Контейнери обмежень */
     .constraint {
       display: flex;
+      flex-wrap: wrap;
       gap: 10px;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
+      align-items: center;
     }
+
+    /* Поля вводу */
+    input[type="number"] {
+      width: 80px;
+      padding: 6px;
+      border: 1px solid #b2bec3;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+
+    /* Кнопки */
     button {
-      margin-top: 10px;
+      background-color: #0984e3;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      margin-right: 10px;
     }
+
+    button:hover {
+      background-color: #74b9ff;
+    }
+
+    /* Результат */
+    #result {
+      text-align: center;
+      font-weight: bold;
+      font-size: 1.2rem;
+      color: #2d3436;
+      margin: 20px auto;
+    }
+
+    /* Графік */
     #chart-container {
-      width: 800px;
+      width: 100%;
+      max-width: 850px;
       margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    canvas {
+      width: 100% !important;
+      height: auto !important;
     }
   </style>
 </head>
@@ -66,7 +137,7 @@
   <button type="button" onclick="solveLP()">Solve</button>
 </form>
 
-<div id="result" style="text-align:center; font-weight:bold; margin:20px;"></div>
+<div id="result"></div>
 <div id="chart-container">
   <canvas id="lpChart"></canvas>
 </div>
@@ -93,7 +164,7 @@ function removeDemandConstraint() {
   demandCount = Math.max(0, demandCount - 1);
 }
 
-// Utility: intersection of two lines a1*x + b1*y = c1, a2*x + b2*y = c2
+// Intersection of two lines
 function intersection(a1,b1,c1, a2,b2,c2) {
   const det = a1*b2 - a2*b1;
   if (Math.abs(det) < 1e-10) return null;
@@ -135,47 +206,38 @@ function solveLP() {
     constraints.push({c1, c2, rhs});
   });
 
-  // Add non-negativity constraints x1>=0, x2>=0
+  // Find feasible points
   const feasiblePoints = [];
-
-  // find intersection of all constraint pairs
   for (let i=0;i<constraints.length;i++){
     for (let j=i+1;j<constraints.length;j++){
       const p = intersection(constraints[i].c1,constraints[i].c2,constraints[i].rhs,
                              constraints[j].c1,constraints[j].c2,constraints[j].rhs);
       if (p && p.x>=0 && p.y>=0){
-        // check feasibility
         let feasible = constraints.every(c=> c.c1*p.x + c.c2*p.y <= c.rhs + 1e-8);
         if (feasible) feasiblePoints.push(p);
       }
     }
   }
 
-  // also check axis intersections
+  // axis intersections
   constraints.forEach(c=>{
-    // x2=0
     if (c.c1!==0){
       let x = c.rhs / c.c1;
       if (x>=0){
         let p={x:x,y:0};
-        let feasible=constraints.every(cc=>cc.c1*p.x+cc.c2*p.y<=cc.rhs+1e-8);
-        if (feasible) feasiblePoints.push(p);
+        if (constraints.every(cc=>cc.c1*p.x+cc.c2*p.y<=cc.rhs+1e-8)) feasiblePoints.push(p);
       }
     }
-    // x1=0
     if (c.c2!==0){
       let y = c.rhs / c.c2;
       if (y>=0){
         let p={x:0,y:y};
-        let feasible=constraints.every(cc=>cc.c1*p.x+cc.c2*p.y<=cc.rhs+1e-8);
-        if (feasible) feasiblePoints.push(p);
+        if (constraints.every(cc=>cc.c1*p.x+cc.c2*p.y<=cc.rhs+1e-8)) feasiblePoints.push(p);
       }
     }
   });
 
-  // include origin if feasible
-  let originFeasible = constraints.every(c=>c.c1*0+c.c2*0<=c.rhs+1e-8);
-  if (originFeasible) feasiblePoints.push({x:0,y:0});
+  if (constraints.every(c=>c.c1*0+c.c2*0<=c.rhs+1e-8)) feasiblePoints.push({x:0,y:0});
 
   if (feasiblePoints.length===0){
     document.getElementById('result').innerText="No feasible solution!";
@@ -183,7 +245,6 @@ function solveLP() {
     return;
   }
 
-  // evaluate objective
   let best=null, bestZ=-Infinity;
   feasiblePoints.forEach(p=>{
     const Z = a*p.x + b*p.y;
